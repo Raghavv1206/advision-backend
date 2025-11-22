@@ -1,0 +1,260 @@
+# backend/core/utils/report_generator.py
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from datetime import datetime
+import io
+from .cloudinary_storage import CloudinaryStorage
+
+class ReportGenerator:
+    """Generate PDF reports and upload to Cloudinary"""
+    
+    @staticmethod
+    def generate_campaign_report(campaign, analytics_data):
+        """
+        Generate a campaign performance report
+        
+        Args:
+            campaign: Campaign object
+            analytics_data: Dictionary with campaign analytics
+            
+        Returns:
+            dict: Report URL and public_id from Cloudinary
+        """
+        try:
+            # Create PDF in memory
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=letter)
+            story = []
+            styles = getSampleStyleSheet()
+            
+            # Custom styles
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=24,
+                textColor=colors.HexColor('#3a3440'),
+                spaceAfter=30,
+                alignment=TA_CENTER,
+            )
+            
+            heading_style = ParagraphStyle(
+                'CustomHeading',
+                parent=styles['Heading2'],
+                fontSize=16,
+                textColor=colors.HexColor('#a88fd8'),
+                spaceAfter=12,
+            )
+            
+            # Title
+            story.append(Paragraph("AdVision Campaign Report", title_style))
+            story.append(Spacer(1, 0.2 * inch))
+            
+            # Campaign Info
+            story.append(Paragraph("Campaign Information", heading_style))
+            campaign_data = [
+                ['Campaign Name:', campaign.title],
+                ['Platform:', campaign.platform.capitalize()],
+                ['Start Date:', str(campaign.start_date)],
+                ['End Date:', str(campaign.end_date)],
+                ['Budget:', f"${campaign.budget or 0}"],
+            ]
+            
+            campaign_table = Table(campaign_data, colWidths=[2*inch, 4*inch])
+            campaign_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            story.append(campaign_table)
+            story.append(Spacer(1, 0.3 * inch))
+            
+            # Performance Metrics
+            story.append(Paragraph("Performance Metrics", heading_style))
+            metrics_data = [
+                ['Metric', 'Value'],
+                ['Total Impressions', f"{analytics_data.get('total_impressions', 0):,}"],
+                ['Total Clicks', f"{analytics_data.get('total_clicks', 0):,}"],
+                ['Total Conversions', f"{analytics_data.get('total_conversions', 0):,}"],
+                ['Total Spend', f"${analytics_data.get('total_spend', 0):.2f}"],
+                ['Average CTR', f"{analytics_data.get('avg_ctr', 0):.2f}%"],
+                ['Average CPC', f"${analytics_data.get('avg_cpc', 0):.2f}"],
+                ['ROAS', f"{analytics_data.get('roas', 0):.2f}x"],
+                ['Performance Score', f"{analytics_data.get('performance_score', 0)}/100"],
+            ]
+            
+            metrics_table = Table(metrics_data, colWidths=[3*inch, 3*inch])
+            metrics_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#a88fd8')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ]))
+            story.append(metrics_table)
+            story.append(Spacer(1, 0.3 * inch))
+            
+            # Footer
+            footer_style = ParagraphStyle(
+                'Footer',
+                parent=styles['Normal'],
+                fontSize=9,
+                textColor=colors.grey,
+                alignment=TA_CENTER,
+            )
+            story.append(Spacer(1, 0.5 * inch))
+            story.append(Paragraph(
+                f"Generated by AdVision on {datetime.now().strftime('%B %d, %Y at %I:%M %p')}",
+                footer_style
+            ))
+            
+            # Build PDF
+            doc.build(story)
+            buffer.seek(0)
+            
+            # Upload to Cloudinary
+            folder = f"advision/reports/{campaign.id}"
+            public_id = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            upload_result = CloudinaryStorage.upload_pdf_report(
+                buffer,
+                folder=folder,
+                public_id=public_id
+            )
+            
+            if upload_result.get('success'):
+                return {
+                    'success': True,
+                    'url': upload_result['url'],
+                    'public_id': upload_result['public_id'],
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': upload_result.get('error')
+                }
+                
+        except Exception as e:
+            print(f"Report generation error: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    @staticmethod
+    def generate_weekly_report(user, report_data):
+        """
+        Generate weekly summary report
+        
+        Args:
+            user: User object
+            report_data: Weekly report data dictionary
+            
+        Returns:
+            dict: Report URL and public_id from Cloudinary
+        """
+        try:
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=letter)
+            story = []
+            styles = getSampleStyleSheet()
+            
+            # Title
+            title_style = ParagraphStyle(
+                'Title',
+                parent=styles['Heading1'],
+                fontSize=24,
+                textColor=colors.HexColor('#3a3440'),
+                alignment=TA_CENTER,
+                spaceAfter=30,
+            )
+            
+            story.append(Paragraph("AdVision Weekly Report", title_style))
+            story.append(Paragraph(f"Period: {report_data.get('period', 'Last 7 days')}", styles['Normal']))
+            story.append(Spacer(1, 0.3 * inch))
+            
+            # Summary section
+            heading_style = ParagraphStyle(
+                'Heading',
+                parent=styles['Heading2'],
+                fontSize=16,
+                textColor=colors.HexColor('#a88fd8'),
+                spaceAfter=12,
+            )
+            
+            story.append(Paragraph("Summary", heading_style))
+            
+            summary = report_data.get('summary', {})
+            summary_data = [
+                ['Metric', 'Value'],
+                ['Campaigns Created', str(summary.get('campaigns_created', 0))],
+                ['Ads Generated', str(summary.get('ads_generated', 0))],
+                ['Images Generated', str(summary.get('images_generated', 0))],
+                ['Active Campaigns', str(summary.get('active_campaigns', 0))],
+                ['Total Engagement', str(summary.get('total_engagement', 0))],
+                ['Engagement Growth', summary.get('engagement_growth', '0%')],
+            ]
+            
+            summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+            summary_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#a88fd8')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ]))
+            story.append(summary_table)
+            story.append(Spacer(1, 0.3 * inch))
+            
+            # Recommendations
+            story.append(Paragraph("AI Recommendations", heading_style))
+            recommendations = report_data.get('recommendations', [])
+            for i, rec in enumerate(recommendations[:5], 1):  # Top 5
+                rec_text = f"<b>{i}. {rec.get('title', '')}</b><br/>{rec.get('description', '')}"
+                story.append(Paragraph(rec_text, styles['Normal']))
+                story.append(Spacer(1, 0.1 * inch))
+            
+            # Build PDF
+            doc.build(story)
+            buffer.seek(0)
+            
+            # Upload to Cloudinary
+            folder = f"advision/users/{user.id}/reports"
+            public_id = f"weekly_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            upload_result = CloudinaryStorage.upload_pdf_report(
+                buffer,
+                folder=folder,
+                public_id=public_id
+            )
+            
+            if upload_result.get('success'):
+                return {
+                    'success': True,
+                    'url': upload_result['url'],
+                    'public_id': upload_result['public_id'],
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': upload_result.get('error')
+                }
+                
+        except Exception as e:
+            print(f"Weekly report generation error: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
